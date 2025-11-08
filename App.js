@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import {
   ActivityIndicator,
   Animated,
+  Dimensions,
   FlatList,
   PanResponder,
   Platform,
@@ -27,8 +28,9 @@ const HALIFAX_REGION = {
 const REFRESH_INTERVAL_MS = 5_000;
 const STALE_THRESHOLD_MS = 45_000;
 
-const COLLAPSED_DRAWER_TRANSLATE = Platform.select({ ios: 300, android: 320, default: 300 });
+const WINDOW_HEIGHT = Dimensions.get('window').height;
 const EXPANDED_DRAWER_TRANSLATE = Platform.select({ ios: 90, android: 110, default: 100 });
+const DEFAULT_COLLAPSED_DRAWER_TRANSLATE = Platform.select({ ios: 300, android: 320, default: 300 });
 
 const API_BASE_URL = resolveApiBaseUrl();
 
@@ -44,8 +46,10 @@ export default function App() {
   const [shapeCache, setShapeCache] = useState(() => new Map());
   const [shapeError, setShapeError] = useState(null);
   const [now, setNow] = useState(() => new Date());
-  const drawerTranslateY = useRef(new Animated.Value(COLLAPSED_DRAWER_TRANSLATE)).current;
-  const drawerValueRef = useRef(COLLAPSED_DRAWER_TRANSLATE);
+  const [sheetHeight, setSheetHeight] = useState(null);
+  const drawerTranslateY = useRef(new Animated.Value(DEFAULT_COLLAPSED_DRAWER_TRANSLATE)).current;
+  const drawerValueRef = useRef(DEFAULT_COLLAPSED_DRAWER_TRANSLATE);
+  const hasPositionedSheet = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -310,6 +314,32 @@ export default function App() {
     [now]
   );
 
+  const activeRouteId = useMemo(
+    () => selectedRoute?.route_id ?? selectedVehicle?.routeId ?? null,
+    [selectedRoute, selectedVehicle]
+  );
+
+  const collapsedDrawerTranslate = useMemo(() => {
+    if (!sheetHeight) {
+      return DEFAULT_COLLAPSED_DRAWER_TRANSLATE;
+    }
+    const visibleTarget = WINDOW_HEIGHT * 0.33;
+    const translate = sheetHeight - visibleTarget;
+    return clamp(
+      translate,
+      EXPANDED_DRAWER_TRANSLATE,
+      Math.max(sheetHeight, DEFAULT_COLLAPSED_DRAWER_TRANSLATE)
+    );
+  }, [sheetHeight]);
+
+  useEffect(() => {
+    if (!sheetHeight || hasPositionedSheet.current) {
+      return;
+    }
+    hasPositionedSheet.current = true;
+    drawerTranslateY.setValue(collapsedDrawerTranslate);
+  }, [collapsedDrawerTranslate, drawerTranslateY, sheetHeight]);
+
   useEffect(() => {
     const id = drawerTranslateY.addListener(({ value }) => {
       drawerValueRef.current = value;
@@ -331,7 +361,7 @@ export default function App() {
   );
 
   const sheetPanResponder = useMemo(() => {
-    let dragOrigin = COLLAPSED_DRAWER_TRANSLATE;
+    let dragOrigin = collapsedDrawerTranslate;
     return PanResponder.create({
       onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 6,
       onPanResponderGrant: () => {
@@ -341,22 +371,22 @@ export default function App() {
         const next = clamp(
           dragOrigin + gesture.dy,
           EXPANDED_DRAWER_TRANSLATE,
-          COLLAPSED_DRAWER_TRANSLATE
+          collapsedDrawerTranslate
         );
         drawerTranslateY.setValue(next);
       },
       onPanResponderRelease: (_, gesture) => {
-        const midpoint = (EXPANDED_DRAWER_TRANSLATE + COLLAPSED_DRAWER_TRANSLATE) / 2;
+        const midpoint = (EXPANDED_DRAWER_TRANSLATE + collapsedDrawerTranslate) / 2;
         const shouldExpand =
           gesture.vy < -0.2
             ? true
             : gesture.vy > 0.2
             ? false
             : drawerValueRef.current < midpoint;
-        animateDrawer(shouldExpand ? EXPANDED_DRAWER_TRANSLATE : COLLAPSED_DRAWER_TRANSLATE);
+        animateDrawer(shouldExpand ? EXPANDED_DRAWER_TRANSLATE : collapsedDrawerTranslate);
       }
     });
-  }, [animateDrawer, drawerTranslateY]);
+  }, [animateDrawer, collapsedDrawerTranslate, drawerTranslateY]);
 
   const routeCards = useMemo(() => {
     const nowMs = Date.now();
@@ -374,6 +404,7 @@ export default function App() {
       seen.add(key);
       items.push({
         id: key,
+        routeId: route?.route_id ?? vehicle.routeId ?? null,
         routeLabel:
           route?.route_short_name ?? route?.route_long_name ?? vehicle.routeId ?? 'Route',
         headsign: trip?.trip_headsign ?? route?.route_long_name ?? 'Headsign unavailable',
@@ -383,20 +414,23 @@ export default function App() {
           : null,
         warning: vehicle.congestionLevel === 'severe' ? 'Delayed' : null,
         vehicleId: vehicle.id,
-        isStale: staleVehicles.has(vehicle.id)
+        isStale: staleVehicles.has(vehicle.id),
+        updatedLabel: vehicle.timestampMs ? formatRelativeTime(vehicle.timestampMs) : null
       });
     });
 
     if (items.length === 0) {
       return routes.slice(0, 5).map((route, index) => ({
         id: route.route_id ?? `route-${index}`,
+        routeId: route.route_id ?? null,
         routeLabel: route.route_short_name ?? route.route_long_name ?? `Route ${index + 1}`,
         headsign: route.route_long_name ?? 'Service info pending',
         stopLabel: 'Searching nearby stops…',
         etaMinutes: null,
         warning: null,
         vehicleId: null,
-        isStale: false
+        isStale: false,
+        updatedLabel: null
       }));
     }
 
@@ -453,20 +487,6 @@ export default function App() {
           <Ionicons name="navigate" color="#6bd3ff" size={18} style={styles.timeIcon} />
         </View>
 
-        <View style={styles.profileColumn}>
-          <View style={styles.avatarBubble}>
-            <Text style={styles.avatarText}>🧑‍🚀</Text>
-          </View>
-          <View style={styles.quickRow}>
-            <View style={[styles.quickIcon, styles.quickIconPrimary]}>
-              <MaterialCommunityIcons name="car" size={20} color="#0a2239" />
-            </View>
-            <View style={[styles.quickIcon, styles.quickIconSecondary]}>
-              <Ionicons name="settings" size={18} color="#ffffff" />
-            </View>
-          </View>
-        </View>
-
         {loadingStatic ? (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#ffffff" />
@@ -482,10 +502,12 @@ export default function App() {
 
         <Animated.View
           style={[styles.sheet, { transform: [{ translateY: drawerTranslateY }] }]}
+          onLayout={({ nativeEvent }) => setSheetHeight(nativeEvent.layout.height)}
         >
           <View style={styles.sheetHandleArea} {...sheetPanResponder.panHandlers}>
             <View style={styles.sheetHandle} />
           </View>
+          <Text style={styles.sheetTitle}>Plan your trip</Text>
           <View style={styles.sheetHeaderRow}>
             <TouchableOpacity
               activeOpacity={0.9}
@@ -515,44 +537,67 @@ export default function App() {
             keyExtractor={(item) => item.id}
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.routesList}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.routeCard}
-                activeOpacity={0.85}
-                onPress={() => item.vehicleId && setSelectedVehicleId(item.vehicleId)}
-              >
-                <View style={styles.routeBadgeColumn}>
-                  <Text style={styles.routeBadgeText}>{item.routeLabel}</Text>
-                  {item.warning ? (
+            ItemSeparatorComponent={() => <View style={styles.routeDivider} />}
+            ListHeaderComponent={
+              <View style={styles.listHeader}>
+                <Text style={styles.listTitle}>Nearby routes</Text>
+                <Text style={styles.listSubtitle}>Live arrivals refresh every few seconds.</Text>
+              </View>
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyTitle}>No buses to show</Text>
+                <Text style={styles.emptySubtitle}>
+                  We will list service here as soon as the realtime feed reports vehicles.
+                </Text>
+              </View>
+            }
+            renderItem={({ item }) => {
+              const isActive = Boolean(activeRouteId && item.routeId === activeRouteId);
+              return (
+                <TouchableOpacity
+                  style={[styles.routeCard, isActive && styles.routeCardActive]}
+                  activeOpacity={0.85}
+                  onPress={() => item.vehicleId && setSelectedVehicleId(item.vehicleId)}
+                >
+                  <View style={styles.routeBadgeColumn}>
+                    <Text style={[styles.routeBadgeText, isActive && styles.routeBadgeTextActive]}>
+                      {item.routeLabel}
+                    </Text>
+                    {item.warning ? (
+                      <MaterialCommunityIcons
+                        name="alert-circle"
+                        size={16}
+                        color="#ffdd55"
+                        style={styles.routeWarningIcon}
+                      />
+                    ) : null}
+                  </View>
+                  <View style={styles.routeBody}>
+                    <Text style={styles.routeTitle} numberOfLines={1}>
+                      {item.headsign}
+                    </Text>
+                    <Text style={styles.routeSubtitle} numberOfLines={1}>
+                      {item.stopLabel}
+                    </Text>
+                    {item.updatedLabel ? (
+                      <Text style={styles.routeUpdated}>{item.updatedLabel}</Text>
+                    ) : null}
+                  </View>
+                  <View style={styles.routeMeta}>
+                    <Text style={[styles.etaText, isActive && styles.etaTextActive]}>
+                      {item.etaMinutes ? `${item.etaMinutes}` : '—'}
+                    </Text>
+                    <Text style={styles.etaCaption}>minutes</Text>
                     <MaterialCommunityIcons
-                      name="alert-circle"
-                      size={16}
-                      color="#ffdd55"
-                      style={styles.routeWarningIcon}
+                      name="access-point"
+                      size={18}
+                      color={item.isStale ? '#7a8fa6' : '#77f0ff'}
                     />
-                  ) : null}
-                </View>
-                <View style={styles.routeBody}>
-                  <Text style={styles.routeTitle} numberOfLines={1}>
-                    {item.headsign}
-                  </Text>
-                  <Text style={styles.routeSubtitle} numberOfLines={1}>
-                    {item.stopLabel}
-                  </Text>
-                </View>
-                <View style={styles.routeMeta}>
-                  <Text style={styles.etaText}>
-                    {item.etaMinutes ? `${item.etaMinutes}` : '—'}
-                  </Text>
-                  <Text style={styles.etaCaption}>minutes</Text>
-                  <MaterialCommunityIcons
-                    name="access-point"
-                    size={18}
-                    color={item.isStale ? '#7a8fa6' : '#77f0ff'}
-                  />
-                </View>
-              </TouchableOpacity>
-            )}
+                  </View>
+                </TouchableOpacity>
+              );
+            }}
           />
         </Animated.View>
       </View>
@@ -603,6 +648,25 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function formatRelativeTime(timestampMs) {
+  if (typeof timestampMs !== 'number') {
+    return null;
+  }
+  const diff = Date.now() - timestampMs;
+  if (diff < 0) {
+    return 'just now';
+  }
+  const minutes = Math.round(diff / 60000);
+  if (minutes < 1) {
+    return 'Just now';
+  }
+  if (minutes < 60) {
+    return `${minutes}m ago`;
+  }
+  const hours = Math.round(minutes / 60);
+  return `${hours}h ago`;
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -629,44 +693,6 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   timeIcon: {
-    marginLeft: 8
-  },
-  profileColumn: {
-    position: 'absolute',
-    top: Platform.select({ ios: 80, android: 90 }),
-    left: 24,
-    alignItems: 'center'
-  },
-  avatarBubble: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: '#1b3052',
-    borderWidth: 3,
-    borderColor: '#2de1fc',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  avatarText: {
-    fontSize: 36,
-    color: '#ffffff'
-  },
-  quickRow: {
-    flexDirection: 'row',
-    marginTop: 12
-  },
-  quickIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(8, 19, 40, 0.8)',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  quickIconPrimary: {
-    backgroundColor: '#ffae35'
-  },
-  quickIconSecondary: {
     marginLeft: 8
   },
   markerLabel: {
@@ -721,9 +747,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#08122c',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingTop: 12,
+    paddingTop: 4,
     paddingHorizontal: 20,
-    paddingBottom: 36,
+    paddingBottom: 32,
     minHeight: 360,
     shadowColor: '#000',
     shadowOpacity: 0.3,
@@ -741,6 +767,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#2f3f66',
     alignSelf: 'center',
     marginBottom: 12
+  },
+  sheetTitle: {
+    color: '#8aa2c8',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 1
   },
   sheetHeaderRow: {
     flexDirection: 'row',
@@ -764,11 +798,12 @@ const styles = StyleSheet.create({
   },
   homeButton: {
     backgroundColor: '#2de1fc',
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    borderRadius: 20,
+    width: 44,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     marginLeft: 12
   },
   homeButtonIcon: {
@@ -780,8 +815,23 @@ const styles = StyleSheet.create({
     marginTop: 8
   },
   routesList: {
-    paddingTop: 16,
-    paddingBottom: 40
+    paddingTop: 8,
+    paddingBottom: 40,
+    flexGrow: 1
+  },
+  listHeader: {
+    marginTop: 20,
+    marginBottom: 12
+  },
+  listTitle: {
+    color: '#f3f6ff',
+    fontSize: 16,
+    fontWeight: '700'
+  },
+  listSubtitle: {
+    color: '#7a8fa6',
+    fontSize: 12,
+    marginTop: 4
   },
   routeCard: {
     backgroundColor: '#0f1f3f',
@@ -789,7 +839,12 @@ const styles = StyleSheet.create({
     padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12
+    minHeight: 96
+  },
+  routeCardActive: {
+    backgroundColor: '#122554',
+    borderColor: '#2de1fc',
+    borderWidth: 1
   },
   routeBadgeColumn: {
     alignItems: 'center',
@@ -800,6 +855,9 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: '800',
     color: '#8ed0ff'
+  },
+  routeBadgeTextActive: {
+    color: '#ffffff'
   },
   routeBody: {
     flex: 1
@@ -814,6 +872,11 @@ const styles = StyleSheet.create({
     color: '#8aa2c8',
     fontSize: 13
   },
+  routeUpdated: {
+    color: '#5f7397',
+    fontSize: 11,
+    marginTop: 6
+  },
   routeMeta: {
     alignItems: 'flex-end',
     marginLeft: 8
@@ -823,6 +886,9 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '800'
   },
+  etaTextActive: {
+    color: '#2de1fc'
+  },
   etaCaption: {
     color: '#7a8fa6',
     fontSize: 11,
@@ -830,6 +896,25 @@ const styles = StyleSheet.create({
   },
   routeWarningIcon: {
     marginTop: 2
+  },
+  routeDivider: {
+    height: 12
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 32
+  },
+  emptyTitle: {
+    color: '#f3f6ff',
+    fontSize: 16,
+    fontWeight: '700'
+  },
+  emptySubtitle: {
+    color: '#7a8fa6',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 8,
+    paddingHorizontal: 20
   }
 });
 
