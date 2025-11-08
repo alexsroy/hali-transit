@@ -1,0 +1,172 @@
+13:39:13.694294 git.c:344               trace: built-in: git 'push' '-u' 'origin' 'HEAD'
+13:39:13.703479 run-command.c:626       trace: run_command: 'git-remote-https' 'origin' 'https://github.com/rileydevitt/Transit.git'
+* Couldn't find host github.com in the .netrc file; using defaults
+* Host github.com:443 was resolved.
+* IPv6: (none)
+* IPv4: 140.82.114.3
+*   Trying 140.82.114.3:443...
+* Connected to github.com (140.82.114.3) port 443
+* ALPN: curl offers h2,http/1.1
+*  CAfile: /etc/ssl/cert.pem
+*  CApath: none
+* SSL connection using TLSv1.3 / AEAD-AES128-GCM-SHA256 / [blank] / UNDEF
+* ALPN: server accepted h2
+* Server certificate:
+*  subject: CN=github.com
+*  start date: Feb  5 00:00:00 2025 GMT
+*  expire date: Feb  5 23:59:59 2026 GMT
+*  subjectAltName: host "github.com" matched cert's "github.com"
+*  issuer: C=GB; ST=Greater Manchester; L=Salford; O=Sectigo Limited; CN=Sectigo ECC Domain Validation Secure Server CA
+*  SSL certificate verify ok.
+* using HTTP/2
+* [HTTP/2] [1] OPENED stream for https://github.com/rileydevitt/Transit.git/info/refs?service=git-receive-pack
+* [HTTP/2] [1] [:method: GET]
+* [HTTP/2] [1] [:scheme: https]
+* [HTTP/2] [1] [:authority: github.com]
+* [HTTP/2] [1] [:path: /rileydevitt/Transit.git/info/refs?service=git-receive-pack]
+* [HTTP/2] [1] [user-agent: git/2.15.0]
+* [HTTP/2] [1] [accept: */*]
+* [HTTP/2] [1] [accept-encoding: gzip]
+* [HTTP/2] [1] [pragma: no-cache]
+> GET /rileydevitt/Transit.git/info/refs?service=git-receive-pack HTTP/2
+Host: github.com
+User-Agent: git/2.15.0
+Accept: */*
+Accept-Encoding: gzip
+Pragma: no-cache
+
+* Request completely sent off
+< HTTP/2 401 
+< server: GitHub-Babel/3.0
+< content-security-policy: default-src 'none'; sandbox
+< content-type: text/plain; charset=UTF-8
+< www-authenticate: Basic realm="GitHub"
+< content-length: 26
+< date: Sat, 08 Nov 2025 17:39:13 GMT
+< x-github-request-id: DD32:3996A3:8D1F235:B20B17F:690F8041
+< x-frame-options: DENY
+< strict-transport-security: max-age=31536000; includeSubDomains; preload
+< 
+* Connection #0 to host github.com left intact
+13:39:13.860558 run-command.c:626       trace: run_command: 'git credential-osxkeychain get'
+13:39:13.902807 git.c:576               trace: exec: 'git-credential-osxkeychain' 'get'
+13:39:13.903736 run-command.c:626       trace: run_command: 'git-credential-osxkeychain' 'get'
+* Found bundle for host: 0x600001d90c00 [can multiplex]
+* Re-using existing connection with host github.com
+* Server auth using Basic with user 'rileydevitt'
+* [HTTP/2] [3] OPENED stream for https://github.com/rileydevitt/Transit.git/info/refs?service=git-receive-pack
+* [HTTP/2] [3] [:method: GET]
+* [HTTP/2] [3] [:scheme: https]
+* [HTTP/2] [3] [:authority: github.com]
+* [HTTP/2] [3] [:path: /rileydevitt/Transit.git/info/refs?service=git-receive-pack]
+* [HTTP/2] [3] [authorization: Basic cmlsZXlkZXZpdHQ6Z2hvX3QwTWFwTXcyVDFyZW5UTnZnU2g2ZXZrc25oWEM4aDFNeGFHOA==]
+* [HTTP/2] [3] [user-agent: git/2.15.0]
+* [HTTP/2] [3] [accept: */*]
+* [HTTP/2] [3] [accept-encoding: gzip]
+* [HTTP/2] [3] [pragma: no-cache]
+> GET /rileydevitt/Transit.git/info/refs?service=git-receive-pack HTTP/2
+Host: github.com
+Authorization: Basic cmlsZXlkZXZpdHQ6Z2hvX3QwTWFwTXcyVDFyZW5UTnZnU2g2ZXZrc25oWEM4aDFNeGFHOA==
+User-Agent: git/2.15.0
+Accept: */*
+Accept-Encoding: gzip
+Pragma: no-cache
+
+* Request completely sent off
+< HTTP/2 200 
+< server: GitHub-Babel/3.0
+< content-type: application/x-git-receive-pack-advertisement
+< content-security-policy: default-src 'none'; sandbox
+< expires: Fri, 01 Jan 1980 00:00:00 GMT
+< pragma: no-cache
+< cache-control: no-cache, max-age=0, must-revalidate
+< vary: Accept-Encoding
+< date: Sat, 08 Nov 2025 17:39:14 GMT
+< x-github-request-id: DD32:3996A3:8D1F2C8:B20B224:690F8041
+< x-frame-options: DENY
+< strict-transport-security: max-age=31536000; includeSubDomains; preload
+< 
+* Connection #0 to host github.com left intact
+13:39:14.008788 run-command.c:626       trace: run_command: 'git credential-osxkeychain store'
+13:39:14.045328 git.c:576               trace: exec: 'git-credential-osxkeychain' 'store'
+13:39:14.046239 run-command.c:626       trace: run_command: 'git-credential-osxkeychain' 'store'
+13:39:14.090263 run-command.c:626       trace: run_command: 'send-pack' '--stateless-rpc' '--helper-status' '--thin' '--no-progress' 'https://github.com/rileydevitt/Transit.git/' '--stdin'
+13:39:14.104084 git.c:344               trace: built-in: git 'send-pack' '--stateless-rpc' '--helper-status' '--thin' '--no-progress' 'https://github.com/rileydevitt/Transit.git/' '--stdin'
+13:39:14.106809 run-command.c:626       trace: run_command: 'pack-objects' '--all-progress-implied' '--revs' '--stdout' '--thin' '--delta-base-offset' '-q'
+13:39:14.117983 git.c:344               trace: built-in: git 'pack-objects' '--all-progress-implied' '--revs' '--stdout' '--thin' '--delta-base-offset' '-q'
+* Found bundle for host: 0x600001d90c00 [can multiplex]
+* Re-using existing connection with host github.com
+* Server auth using Basic with user 'rileydevitt'
+* [HTTP/2] [5] OPENED stream for https://github.com/rileydevitt/Transit.git/git-receive-pack
+* [HTTP/2] [5] [:method: POST]
+* [HTTP/2] [5] [:scheme: https]
+* [HTTP/2] [5] [:authority: github.com]
+* [HTTP/2] [5] [:path: /rileydevitt/Transit.git/git-receive-pack]
+* [HTTP/2] [5] [authorization: Basic cmlsZXlkZXZpdHQ6Z2hvX3QwTWFwTXcyVDFyZW5UTnZnU2g2ZXZrc25oWEM4aDFNeGFHOA==]
+* [HTTP/2] [5] [user-agent: git/2.15.0]
+* [HTTP/2] [5] [content-type: application/x-git-receive-pack-request]
+* [HTTP/2] [5] [accept: application/x-git-receive-pack-result]
+* [HTTP/2] [5] [content-length: 4]
+> POST /rileydevitt/Transit.git/git-receive-pack HTTP/2
+Host: github.com
+Authorization: Basic cmlsZXlkZXZpdHQ6Z2hvX3QwTWFwTXcyVDFyZW5UTnZnU2g2ZXZrc25oWEM4aDFNeGFHOA==
+User-Agent: git/2.15.0
+Content-Type: application/x-git-receive-pack-request
+Accept: application/x-git-receive-pack-result
+Content-Length: 4
+
+* upload completely sent off: 4 bytes
+< HTTP/2 200 
+< server: GitHub-Babel/3.0
+< content-type: application/x-git-receive-pack-result
+< content-security-policy: default-src 'none'; sandbox
+< expires: Fri, 01 Jan 1980 00:00:00 GMT
+< pragma: no-cache
+< cache-control: no-cache, max-age=0, must-revalidate
+< vary: Accept-Encoding
+< content-length: 0
+< date: Sat, 08 Nov 2025 17:39:14 GMT
+< x-github-request-id: DD32:3996A3:8D1F486:B20B45A:690F8042
+< x-frame-options: DENY
+< strict-transport-security: max-age=31536000; includeSubDomains; preload
+< 
+* Connection #0 to host github.com left intact
+* Found bundle for host: 0x600001d90c00 [can multiplex]
+* Re-using existing connection with host github.com
+* Server auth using Basic with user 'rileydevitt'
+* [HTTP/2] [7] OPENED stream for https://github.com/rileydevitt/Transit.git/git-receive-pack
+* [HTTP/2] [7] [:method: POST]
+* [HTTP/2] [7] [:scheme: https]
+* [HTTP/2] [7] [:authority: github.com]
+* [HTTP/2] [7] [:path: /rileydevitt/Transit.git/git-receive-pack]
+* [HTTP/2] [7] [authorization: Basic cmlsZXlkZXZpdHQ6Z2hvX3QwTWFwTXcyVDFyZW5UTnZnU2g2ZXZrc25oWEM4aDFNeGFHOA==]
+* [HTTP/2] [7] [user-agent: git/2.15.0]
+* [HTTP/2] [7] [accept-encoding: gzip]
+* [HTTP/2] [7] [content-type: application/x-git-receive-pack-request]
+* [HTTP/2] [7] [accept: application/x-git-receive-pack-result]
+> POST /rileydevitt/Transit.git/git-receive-pack HTTP/2
+Host: github.com
+Authorization: Basic cmlsZXlkZXZpdHQ6Z2hvX3QwTWFwTXcyVDFyZW5UTnZnU2g2ZXZrc25oWEM4aDFNeGFHOA==
+User-Agent: git/2.15.0
+Accept-Encoding: gzip
+Content-Type: application/x-git-receive-pack-request
+Accept: application/x-git-receive-pack-result
+
+* upload completely sent off: 14 bytes
+< HTTP/2 400 
+< server: GitHub-Babel/3.0
+< content-security-policy: default-src 'none'; sandbox
+< content-type: text/plain; charset=UTF-8
+< content-length: 0
+< date: Sat, 08 Nov 2025 17:39:14 GMT
+< x-github-request-id: DD32:3996A3:8D1F4D2:B20B4D1:690F8042
+< x-frame-options: DENY
+< strict-transport-security: max-age=31536000; includeSubDomains; preload
+< 
+* The requested URL returned error: 400
+* process_pending_input: nghttp2_session_mem_recv() returned -902:The user callback function failed
+* Connection #0 to host github.com left intact
+error: RPC failed; HTTP 400 curl 56 The requested URL returned error: 400
+fatal: The remote end hung up unexpectedly
+fatal: The remote end hung up unexpectedly
+Everything up-to-date
