@@ -1,15 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Constants from 'expo-constants';
 import { StatusBar } from 'expo-status-bar';
 import {
   ActivityIndicator,
+  Animated,
+  FlatList,
+  PanResponder,
   Platform,
   SafeAreaView,
   StyleSheet,
+  TextInput,
+  TouchableOpacity,
   Text,
   View
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 const HALIFAX_REGION = {
   latitude: 44.6488,
@@ -20,6 +26,9 @@ const HALIFAX_REGION = {
 
 const REFRESH_INTERVAL_MS = 5_000;
 const STALE_THRESHOLD_MS = 45_000;
+
+const COLLAPSED_DRAWER_TRANSLATE = Platform.select({ ios: 300, android: 320, default: 300 });
+const EXPANDED_DRAWER_TRANSLATE = Platform.select({ ios: 90, android: 110, default: 100 });
 
 const API_BASE_URL = resolveApiBaseUrl();
 
@@ -34,6 +43,9 @@ export default function App() {
   const [realtimeError, setRealtimeError] = useState(null);
   const [shapeCache, setShapeCache] = useState(() => new Map());
   const [shapeError, setShapeError] = useState(null);
+  const [now, setNow] = useState(() => new Date());
+  const drawerTranslateY = useRef(new Animated.Value(COLLAPSED_DRAWER_TRANSLATE)).current;
+  const drawerValueRef = useRef(COLLAPSED_DRAWER_TRANSLATE);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +82,11 @@ export default function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -288,6 +305,104 @@ export default function App() {
     return null;
   })();
 
+  const timeLabel = useMemo(
+    () => now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+    [now]
+  );
+
+  useEffect(() => {
+    const id = drawerTranslateY.addListener(({ value }) => {
+      drawerValueRef.current = value;
+    });
+    return () => drawerTranslateY.removeListener(id);
+  }, [drawerTranslateY]);
+
+  const animateDrawer = useCallback(
+    (toValue) => {
+      Animated.spring(drawerTranslateY, {
+        toValue,
+        useNativeDriver: true,
+        damping: 25,
+        stiffness: 220,
+        mass: 0.9
+      }).start();
+    },
+    [drawerTranslateY]
+  );
+
+  const sheetPanResponder = useMemo(() => {
+    let dragOrigin = COLLAPSED_DRAWER_TRANSLATE;
+    return PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dy) > 6,
+      onPanResponderGrant: () => {
+        dragOrigin = drawerValueRef.current;
+      },
+      onPanResponderMove: (_, gesture) => {
+        const next = clamp(
+          dragOrigin + gesture.dy,
+          EXPANDED_DRAWER_TRANSLATE,
+          COLLAPSED_DRAWER_TRANSLATE
+        );
+        drawerTranslateY.setValue(next);
+      },
+      onPanResponderRelease: (_, gesture) => {
+        const midpoint = (EXPANDED_DRAWER_TRANSLATE + COLLAPSED_DRAWER_TRANSLATE) / 2;
+        const shouldExpand =
+          gesture.vy < -0.2
+            ? true
+            : gesture.vy > 0.2
+            ? false
+            : drawerValueRef.current < midpoint;
+        animateDrawer(shouldExpand ? EXPANDED_DRAWER_TRANSLATE : COLLAPSED_DRAWER_TRANSLATE);
+      }
+    });
+  }, [animateDrawer, drawerTranslateY]);
+
+  const routeCards = useMemo(() => {
+    const nowMs = Date.now();
+    const items = [];
+    const seen = new Set();
+
+    vehicles.forEach((vehicle) => {
+      const route = vehicle.routeId ? routesById.get(vehicle.routeId) : null;
+      const trip = vehicle.tripId ? tripsById.get(vehicle.tripId) : null;
+      const stop = vehicle.stopId ? stopsById.get(vehicle.stopId) : null;
+      const key = route?.route_id ?? vehicle.routeId ?? vehicle.id;
+      if (!key || seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      items.push({
+        id: key,
+        routeLabel:
+          route?.route_short_name ?? route?.route_long_name ?? vehicle.routeId ?? 'Route',
+        headsign: trip?.trip_headsign ?? route?.route_long_name ?? 'Headsign unavailable',
+        stopLabel: stop?.stop_name ?? 'Stop info coming soon',
+        etaMinutes: vehicle.timestampMs
+          ? Math.max(1, 5 + Math.round((nowMs - vehicle.timestampMs) / 60000))
+          : null,
+        warning: vehicle.congestionLevel === 'severe' ? 'Delayed' : null,
+        vehicleId: vehicle.id,
+        isStale: staleVehicles.has(vehicle.id)
+      });
+    });
+
+    if (items.length === 0) {
+      return routes.slice(0, 5).map((route, index) => ({
+        id: route.route_id ?? `route-${index}`,
+        routeLabel: route.route_short_name ?? route.route_long_name ?? `Route ${index + 1}`,
+        headsign: route.route_long_name ?? 'Service info pending',
+        stopLabel: 'Searching nearby stops…',
+        etaMinutes: null,
+        warning: null,
+        vehicleId: null,
+        isStale: false
+      }));
+    }
+
+    return items.slice(0, 5);
+  }, [routes, routesById, staleVehicles, stopsById, tripsById, vehicles]);
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar style="light" />
@@ -297,6 +412,7 @@ export default function App() {
           initialRegion={HALIFAX_REGION}
           showsCompass={false}
           showsMyLocationButton={false}
+          customMapStyle={DARK_MAP_STYLE}
           provider="google"
         >
           {selectedShapeCoordinates ? (
@@ -332,6 +448,25 @@ export default function App() {
           })}
         </MapView>
 
+        <View style={styles.timeOverlay}>
+          <Text style={styles.timeText}>{timeLabel}</Text>
+          <Ionicons name="navigate" color="#6bd3ff" size={18} style={styles.timeIcon} />
+        </View>
+
+        <View style={styles.profileColumn}>
+          <View style={styles.avatarBubble}>
+            <Text style={styles.avatarText}>🧑‍🚀</Text>
+          </View>
+          <View style={styles.quickRow}>
+            <View style={[styles.quickIcon, styles.quickIconPrimary]}>
+              <MaterialCommunityIcons name="car" size={20} color="#0a2239" />
+            </View>
+            <View style={[styles.quickIcon, styles.quickIconSecondary]}>
+              <Ionicons name="settings" size={18} color="#ffffff" />
+            </View>
+          </View>
+        </View>
+
         {loadingStatic ? (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#ffffff" />
@@ -345,43 +480,81 @@ export default function App() {
           </View>
         ) : null}
 
-        {selectedVehicle ? (
-          <View style={styles.drawer}>
-            <Text style={styles.drawerHeading}>
-              Route{' '}
-              {selectedRoute?.route_short_name ??
-                selectedRoute?.route_long_name ??
-                selectedVehicle.routeId ??
-                'Unknown'}
-            </Text>
-            <Text style={styles.drawerSubheading}>
-              {selectedTrip?.trip_headsign ??
-                (typeof selectedVehicle.directionId === 'number'
-                  ? `Direction ${selectedVehicle.directionId}`
-                  : 'Direction unavailable')}
-            </Text>
-            <Text style={styles.drawerMeta}>
-              Last update:{' '}
-              {selectedVehicle.timestamp
-                ? formatTime(selectedVehicle.timestamp)
-                : 'unavailable'}
-            </Text>
-            {selectedStop ? (
-              <Text style={styles.drawerMeta}>Next stop: {selectedStop.stop_name}</Text>
-            ) : null}
-            {selectedVehicle.scheduleRelationship ? (
-              <Text style={styles.drawerMeta}>
-                Schedule: {selectedVehicle.scheduleRelationship.toLowerCase()}
-              </Text>
-            ) : null}
-            {shapeError ? (
-              <Text style={styles.drawerWarning}>
-                Unable to load route shape: {shapeError}
-              </Text>
-            ) : null}
-            <Text style={styles.drawerHint}>Tap another bus to switch focus.</Text>
+        <Animated.View
+          style={[styles.sheet, { transform: [{ translateY: drawerTranslateY }] }]}
+        >
+          <View style={styles.sheetHandleArea} {...sheetPanResponder.panHandlers}>
+            <View style={styles.sheetHandle} />
           </View>
-        ) : null}
+          <View style={styles.sheetHeaderRow}>
+            <TouchableOpacity
+              activeOpacity={0.9}
+              style={styles.searchBar}
+              onPress={() => animateDrawer(EXPANDED_DRAWER_TRANSLATE)}
+            >
+              <Ionicons name="search" size={20} color="#daf6db" />
+              <TextInput
+                placeholder="Where to?"
+                placeholderTextColor="#daf6db"
+                style={styles.searchInput}
+                editable={false}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.homeButton} activeOpacity={0.8}>
+              <Ionicons name="home" size={20} color="#0a2239" />
+              <Ionicons name="add" size={16} color="#0a2239" style={styles.homeButtonIcon} />
+            </TouchableOpacity>
+          </View>
+
+          {shapeError ? (
+            <Text style={styles.sheetWarning}>Unable to load route shape: {shapeError}</Text>
+          ) : null}
+
+          <FlatList
+            data={routeCards}
+            keyExtractor={(item) => item.id}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.routesList}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.routeCard}
+                activeOpacity={0.85}
+                onPress={() => item.vehicleId && setSelectedVehicleId(item.vehicleId)}
+              >
+                <View style={styles.routeBadgeColumn}>
+                  <Text style={styles.routeBadgeText}>{item.routeLabel}</Text>
+                  {item.warning ? (
+                    <MaterialCommunityIcons
+                      name="alert-circle"
+                      size={16}
+                      color="#ffdd55"
+                      style={styles.routeWarningIcon}
+                    />
+                  ) : null}
+                </View>
+                <View style={styles.routeBody}>
+                  <Text style={styles.routeTitle} numberOfLines={1}>
+                    {item.headsign}
+                  </Text>
+                  <Text style={styles.routeSubtitle} numberOfLines={1}>
+                    {item.stopLabel}
+                  </Text>
+                </View>
+                <View style={styles.routeMeta}>
+                  <Text style={styles.etaText}>
+                    {item.etaMinutes ? `${item.etaMinutes}` : '—'}
+                  </Text>
+                  <Text style={styles.etaCaption}>minutes</Text>
+                  <MaterialCommunityIcons
+                    name="access-point"
+                    size={18}
+                    color={item.isStale ? '#7a8fa6' : '#77f0ff'}
+                  />
+                </View>
+              </TouchableOpacity>
+            )}
+          />
+        </Animated.View>
       </View>
     </SafeAreaView>
   );
@@ -426,6 +599,10 @@ function formatTime(value) {
   }
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -434,6 +611,63 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0a2239'
+  },
+  timeOverlay: {
+    position: 'absolute',
+    top: Platform.select({ ios: 12, android: 16 }),
+    left: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: 'rgba(10, 34, 57, 0.85)',
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  timeText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '600'
+  },
+  timeIcon: {
+    marginLeft: 8
+  },
+  profileColumn: {
+    position: 'absolute',
+    top: Platform.select({ ios: 80, android: 90 }),
+    left: 24,
+    alignItems: 'center'
+  },
+  avatarBubble: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: '#1b3052',
+    borderWidth: 3,
+    borderColor: '#2de1fc',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  avatarText: {
+    fontSize: 36,
+    color: '#ffffff'
+  },
+  quickRow: {
+    flexDirection: 'row',
+    marginTop: 12
+  },
+  quickIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(8, 19, 40, 0.8)',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  quickIconPrimary: {
+    backgroundColor: '#ffae35'
+  },
+  quickIconSecondary: {
+    marginLeft: 8
   },
   markerLabel: {
     backgroundColor: '#ffffff',
@@ -479,43 +713,147 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center'
   },
-  drawer: {
+  sheet: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: Platform.select({ ios: 40, android: 24 }),
-    backgroundColor: 'rgba(10, 34, 57, 0.95)',
-    borderRadius: 16,
-    padding: 16,
+    left: 0,
+    right: 0,
+    bottom: -20,
+    backgroundColor: '#08122c',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    paddingBottom: 36,
+    minHeight: 360,
     shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 3
+    shadowOpacity: 0.3,
+    shadowRadius: 24,
+    elevation: 30
   },
-  drawerHeading: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 4
+  sheetHandleArea: {
+    alignItems: 'center',
+    paddingVertical: 6
   },
-  drawerSubheading: {
-    color: '#ffbb33',
-    fontSize: 14,
-    marginBottom: 8
+  sheetHandle: {
+    width: 48,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: '#2f3f66',
+    alignSelf: 'center',
+    marginBottom: 12
   },
-  drawerMeta: {
-    color: '#ffffff',
-    fontSize: 13,
-    marginBottom: 4
+  sheetHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center'
   },
-  drawerHint: {
-    color: '#b0c4de',
-    fontSize: 12,
-    marginTop: 8
+  searchBar: {
+    flex: 1,
+    backgroundColor: '#0c793a',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center'
   },
-  drawerWarning: {
+  searchInput: {
+    flex: 1,
+    color: '#daf6db',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8
+  },
+  homeButton: {
+    backgroundColor: '#2de1fc',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 12
+  },
+  homeButtonIcon: {
+    marginLeft: 4
+  },
+  sheetWarning: {
     color: '#ffcccb',
     fontSize: 12,
     marginTop: 8
+  },
+  routesList: {
+    paddingTop: 16,
+    paddingBottom: 40
+  },
+  routeCard: {
+    backgroundColor: '#0f1f3f',
+    borderRadius: 20,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  routeBadgeColumn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 16
+  },
+  routeBadgeText: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#8ed0ff'
+  },
+  routeBody: {
+    flex: 1
+  },
+  routeTitle: {
+    color: '#f3f6ff',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 2
+  },
+  routeSubtitle: {
+    color: '#8aa2c8',
+    fontSize: 13
+  },
+  routeMeta: {
+    alignItems: 'flex-end',
+    marginLeft: 8
+  },
+  etaText: {
+    color: '#ffffff',
+    fontSize: 24,
+    fontWeight: '800'
+  },
+  etaCaption: {
+    color: '#7a8fa6',
+    fontSize: 11,
+    marginBottom: 4
+  },
+  routeWarningIcon: {
+    marginTop: 2
   }
 });
+
+const DARK_MAP_STYLE = [
+  { elementType: 'geometry', stylers: [{ color: '#06122a' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#4d94c2' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#02101f' }] },
+  {
+    featureType: 'water',
+    elementType: 'geometry',
+    stylers: [{ color: '#03245b' }]
+  },
+  {
+    featureType: 'road',
+    elementType: 'geometry',
+    stylers: [{ color: '#0b2f4e' }]
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry',
+    stylers: [{ color: '#11456f' }]
+  },
+  {
+    featureType: 'poi',
+    stylers: [{ visibility: 'off' }]
+  }
+];
