@@ -1,8 +1,9 @@
 // Main screen that composes data hooks, map, and sheet UI for the transit experience.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { SafeAreaView, View } from 'react-native';
+import { View, TouchableOpacity, Text } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
 import styles from '../styles/AppStyles.js';
 import DARK_MAP_STYLE from '../styles/darkMapStyles.js';
 import resolveApiBaseUrl from '../utils/resolveApiBaseUrl.js';
@@ -27,7 +28,7 @@ import useSelectedStop from '../hooks/useSelectedStop.js';
 import useStaleVehicles from '../hooks/useStaleVehicles.js';
 import useVisibleStopsList from '../hooks/useVisibleStopsList.js';
 import useRouteCards from '../hooks/useRouteCards.js';
-import useStopArrivals from '../hooks/useStopArrivals.js';
+import useStopSchedule from '../hooks/useStopSchedule.js';
 import useStatusBannerMessage from '../hooks/useStatusBannerMessage.js';
 
 const API_BASE_URL = resolveApiBaseUrl();
@@ -36,6 +37,7 @@ const API_BASE_URL = resolveApiBaseUrl();
 export default function TransitScreen() {
   const [selectedStopId, setSelectedStopId] = useState(null);
   const mapRef = useRef(null);
+  const sheetRef = useRef(null);
 
   const {
     routes,
@@ -113,14 +115,7 @@ export default function TransitScreen() {
     tripsById,
     staleVehicles
   });
-  const stopArrivals = useStopArrivals({
-    selectedStopId,
-    selectedStop,
-    vehicles,
-    routesById,
-    tripsById,
-    staleVehicles
-  });
+  const { scheduledArrivals } = useStopSchedule(selectedStopId, API_BASE_URL);
 
   const isStopFocused = Boolean(selectedStopId && selectedStop);
   const activeRouteId = useMemo(
@@ -155,12 +150,26 @@ export default function TransitScreen() {
     setSelectedVehicleId(vehicleId);
   }, [setSelectedVehicleId]);
 
+  const handleSearchPress = useCallback(() => {
+    sheetRef.current?.expand();
+  }, []);
+
   const statusBanner = useStatusBannerMessage({ staticError, realtimeError, locationError });
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       <StatusBar style="light" />
       <View style={styles.container}>
+        <View style={styles.topSearchOverlay}>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            style={styles.searchBar}
+            onPress={handleSearchPress}
+          >
+            <Ionicons name="search" size={20} color="#daf6db" />
+            <Text style={styles.searchInput}>Where to?</Text>
+          </TouchableOpacity>
+        </View>
         <TransitMap
           mapRef={mapRef}
           initialRegion={HALIFAX_REGION}
@@ -183,10 +192,11 @@ export default function TransitScreen() {
         <StatusBanner message={statusBanner} />
 
         <TripPlannerSheet
+          ref={sheetRef}
           routeCards={routeCards}
           onRouteSelect={handleRouteSelect}
           activeRouteId={activeRouteId}
-          stopArrivals={stopArrivals}
+          scheduledArrivals={scheduledArrivals}
           isStopFocused={isStopFocused}
           selectedStop={selectedStop}
           selectedStopId={selectedStopId}
@@ -194,6 +204,6 @@ export default function TransitScreen() {
           shapeError={shapeError}
         />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }

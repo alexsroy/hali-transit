@@ -11,6 +11,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0a2239'
   },
+  topSearchOverlay: {
+    position: 'absolute',
+    top: Platform.select({ ios: 70, android: 50, default: 50 }),
+    left: 16,
+    right: 16,
+    zIndex: 10
+  },
   markerLabel: {
     backgroundColor: '#ffffff',
     paddingHorizontal: 6,

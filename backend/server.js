@@ -62,6 +62,36 @@ async function bootstrap() {
     }
   });
 
+  app.get('/api/static/stop-arrivals', async (req, res, next) => {
+    const stopId = req.query.stopId;
+    if (!stopId) {
+      res.status(400).json({ error: 'stopId query parameter is required.' });
+      return;
+    }
+
+    try {
+      const data = await staticDataPromise;
+      const schedule = data.stopSchedulesByStopId.get(String(stopId)) ?? [];
+      const arrivals = schedule.slice(0, 20).map((entry) => {
+        const trip = data.tripsById.get(entry.tripId) ?? null;
+        const route = trip?.route_id ? data.routesById.get(trip.route_id) ?? null : null;
+        return {
+          tripId: entry.tripId,
+          arrivalTime: entry.arrivalTime,
+          arrivalLabel: entry.arrivalLabel,
+          stopSequence: entry.stopSequence,
+          routeId: trip?.route_id ?? null,
+          routeShortName: route?.route_short_name ?? null,
+          routeLongName: route?.route_long_name ?? null,
+          headsign: trip?.trip_headsign ?? null
+        };
+      });
+      res.json({ arrivals });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.use((error, req, res, _next) => {
     console.error('API error:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -90,11 +120,12 @@ async function loadStaticData() {
       return parseCsv(buffer.toString('utf8'));
     };
 
-    const [routesRaw, stopsRaw, tripsRaw, shapesRaw] = await Promise.all([
+    const [routesRaw, stopsRaw, tripsRaw, shapesRaw, stopTimesRaw] = await Promise.all([
       readCsv('routes.txt'),
       readCsv('stops.txt'),
       readCsv('trips.txt'),
-      readCsv('shapes.txt')
+      readCsv('shapes.txt'),
+      readCsv('stop_times.txt')
     ]);
 
     const routes = routesRaw.map((route) => ({
@@ -122,6 +153,9 @@ async function loadStaticData() {
       shape_id: trip.shape_id
     }));
 
+    const routesById = new Map(routes.map((route) => [route.route_id, route]));
+    const tripsById = new Map(trips.map((trip) => [trip.trip_id, trip]));
+
     const shapesById = new Map();
     shapesRaw.forEach((shape) => {
       if (!shape.shape_id) {
@@ -146,8 +180,40 @@ async function loadStaticData() {
       pointList.sort((a, b) => a.shape_pt_sequence - b.shape_pt_sequence);
     }
 
+    const stopSchedulesByStopId = new Map();
+    stopTimesRaw.forEach((stopTime) => {
+      const stopId = stopTime.stop_id;
+      const tripId = stopTime.trip_id;
+      if (!stopId || !tripId) {
+        return;
+      }
+      const arrivalTime = stopTime.arrival_time || stopTime.departure_time;
+      if (!arrivalTime) {
+        return;
+      }
+      const arrivalSeconds = timeToSeconds(arrivalTime);
+      if (arrivalSeconds == null) {
+        return;
+      }
+      const stopSequence = parseIntSafe(stopTime.stop_sequence) ?? 0;
+      const entry = {
+        tripId,
+        arrivalTime,
+        arrivalLabel: formatScheduleLabel(arrivalTime),
+        arrivalSeconds,
+        stopSequence
+      };
+      const list = stopSchedulesByStopId.get(stopId) ?? [];
+      list.push(entry);
+      stopSchedulesByStopId.set(stopId, list);
+    });
+
+    for (const list of stopSchedulesByStopId.values()) {
+      list.sort((a, b) => a.arrivalSeconds - b.arrivalSeconds);
+    }
+
     console.log('Loaded GTFS static data.');
-    return { routes, stops, trips, shapesById };
+    return { routes, stops, trips, shapesById, stopSchedulesByStopId, routesById, tripsById };
   } finally {
     await zip.close();
   }
@@ -174,6 +240,27 @@ function parseCsv(contents) {
     skip_empty_lines: true,
     trim: true
   });
+}
+
+function timeToSeconds(value) {
+  if (!value) {
+    return null;
+  }
+  const parts = value.split(':').map((part) => Number.parseInt(part, 10));
+  if (parts.length < 2 || parts.some((part) => Number.isNaN(part))) {
+    return null;
+  }
+  const [hours, minutes, seconds = 0] = parts;
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function formatScheduleLabel(timeString) {
+  if (!timeString) {
+    return '';
+  }
+  const [hours, minutes] = timeString.split(':');
+  const hourNumber = Number.parseInt(hours, 10) % 24;
+  return `${String(hourNumber).padStart(2, '0')}:${minutes ?? '00'}`;
 }
 
 /** Downloads the realtime vehicle feed and normalizes each entity. */

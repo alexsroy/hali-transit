@@ -1,8 +1,10 @@
 // Bottom sheet UI for trip planning, route cards, and stop arrivals.
 
 import React, {
+  forwardRef,
   useCallback,
   useEffect,
+  useImperativeHandle,
   useMemo,
   useRef,
   useState
@@ -14,34 +16,32 @@ import {
   PanResponder,
   Platform,
   Text,
-  TextInput,
   TouchableOpacity,
   View
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import styles from '../../styles/AppStyles.js';
 import clamp from '../../utils/clamp.js';
-import formatTime from '../../utils/formatTime.js';
 
 const WINDOW_HEIGHT = Dimensions.get('window').height;
-const BASE_EXPANDED_DRAWER_TRANSLATE = Platform.select({ ios: 90, android: 110, default: 100 });
+const BASE_EXPANDED_DRAWER_TRANSLATE = 0;
 const DEFAULT_COLLAPSED_DRAWER_TRANSLATE = Platform.select({ ios: 300, android: 320, default: 300 });
-const MAX_DRAWER_COVERAGE = 0.9;
+const MAX_DRAWER_COVERAGE = 1;
 const MIN_TOP_GAP = WINDOW_HEIGHT * (1 - MAX_DRAWER_COVERAGE);
 const MAX_SHEET_HEIGHT = WINDOW_HEIGHT;
 
 /** Bottom sheet that surfaces search, routes, and stop arrivals. */
-export default function TripPlannerSheet({
+const TripPlannerSheet = forwardRef(function TripPlannerSheet({
   routeCards,
   onRouteSelect,
   activeRouteId,
-  stopArrivals,
+  scheduledArrivals,
   isStopFocused,
   selectedStop,
   selectedStopId,
   onClearStop,
   shapeError
-}) {
+}, ref) {
   const [sheetHeight, setSheetHeight] = useState(null);
   const drawerTranslateY = useRef(new Animated.Value(DEFAULT_COLLAPSED_DRAWER_TRANSLATE)).current;
   const drawerValueRef = useRef(DEFAULT_COLLAPSED_DRAWER_TRANSLATE);
@@ -128,9 +128,13 @@ export default function TripPlannerSheet({
     }
   }, [animateDrawer, expandedDrawerTranslate, isStopFocused]);
 
-  const handleSearchPress = useCallback(() => {
-    animateDrawer(expandedDrawerTranslate);
-  }, [animateDrawer, expandedDrawerTranslate]);
+  useImperativeHandle(
+    ref,
+    () => ({
+      expand: () => animateDrawer(expandedDrawerTranslate)
+    }),
+    [animateDrawer, expandedDrawerTranslate]
+  );
 
   return (
     <Animated.View
@@ -141,25 +145,6 @@ export default function TripPlannerSheet({
         <View style={styles.sheetHandle} />
       </View>
       <Text style={styles.sheetTitle}>Plan your trip</Text>
-      <View style={styles.sheetHeaderRow}>
-        <TouchableOpacity
-          activeOpacity={0.9}
-          style={styles.searchBar}
-          onPress={handleSearchPress}
-        >
-          <Ionicons name="search" size={20} color="#daf6db" />
-          <TextInput
-            placeholder="Where to?"
-            placeholderTextColor="#daf6db"
-            style={styles.searchInput}
-            editable={false}
-          />
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.homeButton} activeOpacity={0.8}>
-          <Ionicons name="home" size={20} color="#0a2239" />
-          <Ionicons name="add" size={16} color="#0a2239" style={styles.homeButtonIcon} />
-        </TouchableOpacity>
-      </View>
 
       {shapeError ? (
         <Text style={styles.sheetWarning}>Unable to load route shape: {shapeError}</Text>
@@ -170,14 +155,14 @@ export default function TripPlannerSheet({
           stop={selectedStop}
           stopId={selectedStopId}
           onClear={onClearStop}
-          arrivals={stopArrivals}
+          arrivals={scheduledArrivals}
         />
       ) : (
         <RouteList routes={routeCards} onSelect={onRouteSelect} activeRouteId={activeRouteId} />
       )}
     </Animated.View>
   );
-}
+});
 
 /** Displays the primary list of route cards within the sheet. */
 function RouteList({ routes, onSelect, activeRouteId }) {
@@ -192,7 +177,7 @@ function RouteList({ routes, onSelect, activeRouteId }) {
   return (
     <FlatList
       data={routes}
-      keyExtractor={(item) => item.id}
+      keyExtractor={(item, index) => item.id ?? `route-${index}`}
       showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.routesList}
       ItemSeparatorComponent={() => <View style={styles.routeDivider} />}
@@ -270,35 +255,38 @@ function StopDetails({ stop, stopId, onClear, arrivals }) {
       </View>
       <FlatList
         data={arrivals}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) =>
+          item.tripId ? `${item.tripId}-${item.stopSequence ?? index}` : `${index}`
+        }
         contentContainerStyle={styles.routesList}
         ListEmptyComponent={<NoArrivalsState />}
-        renderItem={({ item }) => <StopArrivalCard arrival={item} />}
+        renderItem={({ item }) => <ScheduledArrivalCard arrival={item} />}
         style={{ maxHeight: WINDOW_HEIGHT * 0.55 }}
       />
     </>
   );
 }
 
-/** Visualizes a single incoming vehicle for the selected stop. */
-function StopArrivalCard({ arrival }) {
+/** Visualizes a scheduled trip entry for the selected stop. */
+function ScheduledArrivalCard({ arrival }) {
   return (
     <View style={styles.arrivalCard}>
       <View style={styles.arrivalRouteBadge}>
-        <Text style={styles.arrivalRouteText}>{arrival.routeLabel}</Text>
+        <Text style={styles.arrivalRouteText}>
+          {arrival.routeShortName ?? arrival.routeLabel ?? 'Route'}
+        </Text>
       </View>
       <View style={styles.arrivalBody}>
         <Text style={styles.arrivalTitle} numberOfLines={1}>
-          {arrival.headsign}
+          {arrival.headsign ?? arrival.routeLongName ?? 'Scheduled trip'}
         </Text>
         <Text style={styles.arrivalSubtitle}>
-          {arrival.distanceLabel} · updated{' '}
-          {arrival.timestamp ? formatTime(arrival.timestamp) : 'recently'}
+          Trip #{arrival.tripId ?? 'N/A'}
         </Text>
       </View>
       <View style={styles.arrivalEtaBlock}>
-        <Text style={styles.arrivalEta}>{arrival.etaMinutes ? `${arrival.etaMinutes}` : '—'}</Text>
-        <Text style={styles.arrivalEtaCaption}>min</Text>
+        <Text style={styles.arrivalEta}>{arrival.arrivalLabel ?? arrival.arrivalTime ?? '—'}</Text>
+        <Text style={styles.arrivalEtaCaption}>scheduled</Text>
       </View>
     </View>
   );
@@ -315,3 +303,5 @@ function NoArrivalsState() {
     </View>
   );
 }
+
+export default TripPlannerSheet;
