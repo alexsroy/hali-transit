@@ -59,7 +59,6 @@ export default function App() {
   const [realtimeError, setRealtimeError] = useState(null);
   const [shapeCache, setShapeCache] = useState(() => new Map());
   const [shapeError, setShapeError] = useState(null);
-  const [now, setNow] = useState(() => new Date());
   const [sheetHeight, setSheetHeight] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
   const [locationError, setLocationError] = useState(null);
@@ -103,11 +102,6 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(() => setNow(new Date()), 30_000);
-    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -379,11 +373,6 @@ export default function App() {
     }
     return null;
   })();
-
-  const timeLabel = useMemo(
-    () => now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
-    [now]
-  );
 
   const activeRouteId = useMemo(
     () => selectedRoute?.route_id ?? selectedVehicle?.routeId ?? null,
@@ -705,11 +694,6 @@ export default function App() {
           })}
         </MapView>
 
-        <View style={styles.timeOverlay}>
-          <Text style={styles.timeText}>{timeLabel}</Text>
-          <Ionicons name="navigate" color="#6bd3ff" size={18} style={styles.timeIcon} />
-        </View>
-
         {loadingStatic ? (
           <View style={styles.loadingOverlay}>
             <ActivityIndicator size="large" color="#ffffff" />
@@ -816,4 +800,3 @@ export default function App() {
     </SafeAreaView>
   );
 }
-

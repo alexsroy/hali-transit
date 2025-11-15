@@ -9,25 +9,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0a2239'
   },
-  timeOverlay: {
-    position: 'absolute',
-    top: Platform.select({ ios: 12, android: 16 }),
-    left: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(10, 34, 57, 0.85)',
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  timeText: {
-    color: '#ffffff',
-    fontSize: 18,
-    fontWeight: '600'
-  },
-  timeIcon: {
-    marginLeft: 8
-  },
   markerLabel: {
     backgroundColor: '#ffffff',
     paddingHorizontal: 6,
