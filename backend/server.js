@@ -10,7 +10,7 @@ loadEnvFromFile();
 
 const STATIC_ZIP_PATH = path.join(__dirname, '..', 'google_transit.zip');
 const VEHICLE_POSITIONS_PATH = path.join(__dirname, '..', 'VehiclePositions.pb');
-const VEHICLE_POSITIONS_URL = process.env.GTFS_VEHICLE_POSITIONS_URL || null;
+const VEHICLE_POSITIONS_URL = 'https://gtfs.halifax.ca/realtime/Vehicle/VehiclePositions.pb';
 
 const PORT = Number(process.env.PORT) || 4000;
 
