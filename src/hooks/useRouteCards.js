@@ -237,8 +237,8 @@ export default function useRouteCards({
     });
 
     const sortedBuckets = Array.from(stopBuckets.values()).sort((a, b) => a.distanceKm - b.distanceKm);
-    const primaryBuckets = sortedBuckets.slice(0, 5);
-    const secondaryBuckets = sortedBuckets.slice(5);
+    const primaryBuckets = sortedBuckets.slice(0, 4);
+    const secondaryBuckets = sortedBuckets.slice(4);
 
     const primaryCandidates = [];
     primaryBuckets.forEach((bucket) => {
@@ -310,10 +310,12 @@ export default function useRouteCards({
     finalCards.sort((a, b) => a.order - b.order);
 
     const primaryCards = finalCards.filter((entry) => entry.isPrimary);
-    if (primaryCards.length > 0) {
-      return primaryCards.map((entry) => entry.card);
+    const secondaryCards = finalCards.filter((entry) => !entry.isPrimary);
+
+    if (primaryCards.length >= MAX_ROUTE_CARDS) {
+      return primaryCards.slice(0, MAX_ROUTE_CARDS).map((entry) => entry.card);
     }
 
-    return finalCards.slice(0, MAX_ROUTE_CARDS).map((entry) => entry.card);
+    return [...primaryCards, ...secondaryCards].slice(0, MAX_ROUTE_CARDS).map((entry) => entry.card);
   }, [routeDirections, routes, routesById, staleVehicles, stopsById, tripsById, userLocation, vehicles]);
 }
