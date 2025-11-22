@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
   },
   searchBar: {
     flex: 1,
-    backgroundColor: '#0c793a',
+    backgroundColor: '#0b2f63',
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: 10,
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    color: '#daf6db',
+    color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8
