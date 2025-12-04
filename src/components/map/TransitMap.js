@@ -49,17 +49,21 @@ export default function TransitMap({
 
       <VehicleMarkers
         vehicles={
-          selectedRoute?.route_id
-            ? vehicles.filter((vehicle) => {
-                if (vehicle.routeId !== selectedRoute.route_id) {
-                  return false;
-                }
-                if (typeof selectedDirectionId === 'number') {
-                  return vehicle.directionId === selectedDirectionId;
-                }
-                return true;
-              })
-            : vehicles
+          (
+            selectedRoute?.route_id
+              ? vehicles.filter((vehicle) => {
+                  if (vehicle.routeId !== selectedRoute.route_id) return false;
+                  if (typeof selectedDirectionId === 'number') {
+                    return vehicle.directionId === selectedDirectionId;
+                  }
+                  return true;
+                })
+              : vehicles
+          )
+            // Deduplicate by vehicleId
+            .filter((v, index, arr) =>
+              index === arr.findIndex(v2 => v2.vehicleId === v.vehicleId)
+            )
         }
         routesById={routesById}
         staleVehicles={staleVehicles}

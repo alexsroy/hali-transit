@@ -68,13 +68,35 @@ async function bootstrap() {
       res.status(400).json({ error: 'stopId query parameter is required.' });
       return;
     }
-
+  
     try {
       const data = await staticDataPromise;
+  
       const schedule = data.stopSchedulesByStopId.get(String(stopId)) ?? [];
-      const arrivals = schedule.slice(0, 20).map((entry) => {
+  
+      // ---- Convert "HH:MM:SS" -> seconds since midnight ----
+      function timeToSeconds(t) {
+        const [h, m, s] = t.split(':').map(Number);
+        return h * 3600 + m * 60 + s;
+      }
+  
+      // ---- Current time in seconds since midnight ----
+      const now = new Date();
+      const secondsSinceMidnight =
+        now.getHours() * 3600 +
+        now.getMinutes() * 60 +
+        now.getSeconds();
+  
+      // ---- Filter + sort upcoming arrivals ----
+      const filtered = schedule
+        .filter(entry => timeToSeconds(entry.arrivalTime) >= secondsSinceMidnight)
+        .sort((a, b) => timeToSeconds(a.arrivalTime) - timeToSeconds(b.arrivalTime))
+        .slice(0, 20);
+  
+      const arrivals = filtered.map(entry => {
         const trip = data.tripsById.get(entry.tripId) ?? null;
         const route = trip?.route_id ? data.routesById.get(trip.route_id) ?? null : null;
+  
         return {
           tripId: entry.tripId,
           arrivalTime: entry.arrivalTime,
@@ -86,11 +108,13 @@ async function bootstrap() {
           headsign: trip?.trip_headsign ?? null
         };
       });
+  
       res.json({ arrivals });
     } catch (error) {
       next(error);
     }
   });
+  
 
   app.use((error, req, res, _next) => {
     console.error('API error:', error);
