@@ -12,25 +12,45 @@ const loadEnvFromFile = require('../loadEnv');
 loadEnvFromFile(path.join(__dirname, '..', '.env'));
 
 const STATIC_ZIP_PATH = path.join(__dirname, '..', 'google_transit.zip');
-const VEHICLE_POSITIONS_PATH = path.join(__dirname, '..', 'VehiclePositions.pb');
 const VEHICLE_POSITIONS_URL = 'https://gtfs.halifax.ca/realtime/Vehicle/VehiclePositions.pb';
+const TRIP_UPDATES_URL = 'https://gtfs.halifax.ca/realtime/TripUpdate/TripUpdates.pb';
+
 
 const PORT = Number(process.env.PORT) || 4000;
 
+//All static data (so it doesn't get called every time)
+let routes;
+let stops;
+let staticTrips;
+let shapesById;
+let stopSchedulesByStopId;
+let routesById;
+let staticTripsById;
 /** Spins up the Express server and wires API routes. */
 async function bootstrap() {
   const app = express();
   app.use(cors());
 
-  const staticDataPromise = loadStaticData();
+  ({
+    routes,
+    stops,
+    trips: staticTrips,
+    shapesById,
+    stopSchedulesByStopId,
+    routesById,
+    tripsById: staticTripsById
+  } = await loadStaticData());
+
+  if (!staticTripsById || !routesById) {
+    throw new Error('GTFS static data failed to initialize');
+  }
 
   app.get('/api/static/summary', async (req, res, next) => {
     try {
-      const data = await staticDataPromise;
       res.json({
-        routes: data.routes,
-        stops: data.stops,
-        trips: data.trips
+        routes,
+        stops,
+        staticTrips
       });
     } catch (error) {
       next(error);
@@ -45,8 +65,7 @@ async function bootstrap() {
     }
 
     try {
-      const data = await staticDataPromise;
-      const points = data.shapesById.get(String(shapeId)) ?? [];
+      const points = shapesById.get(String(shapeId)) ?? [];
       res.json({ points });
     } catch (error) {
       next(error);
@@ -62,6 +81,28 @@ async function bootstrap() {
     }
   });
 
+
+  app.get('/api/realtime/stop-arrivals', async (req, res, next) => {
+    const stopId = req.query.stopId;
+    if (!stopId) {
+      res.status(400).json({ error: 'stopId query parameter is required.' });
+      return;
+    }
+  
+    try {
+  
+      if (!tripsById || !routesById) {
+        throw new Error('Static GTFS data not loaded correctly');
+      }
+  
+      const arrivals = await getBusesArrivingAtStop(stopId);
+      res.json({ arrivals });
+    } catch (error) {
+      next(error);
+    }
+  });
+  
+
   app.get('/api/static/stop-arrivals', async (req, res, next) => {
     const stopId = req.query.stopId;
     if (!stopId) {
@@ -70,9 +111,8 @@ async function bootstrap() {
     }
   
     try {
-      const data = await staticDataPromise;
   
-      const schedule = data.stopSchedulesByStopId.get(String(stopId)) ?? [];
+      const schedule = stopSchedulesByStopId.get(String(stopId)) ?? [];
   
       // ---- Convert "HH:MM:SS" -> seconds since midnight ----
       function timeToSeconds(t) {
@@ -94,8 +134,8 @@ async function bootstrap() {
         .slice(0, 20);
   
       const arrivals = filtered.map(entry => {
-        const trip = data.tripsById.get(entry.tripId) ?? null;
-        const route = trip?.route_id ? data.routesById.get(trip.route_id) ?? null : null;
+        const trip = tripsById.get(entry.tripId) ?? null;
+        const route = trip?.route_id ? routesById.get(trip.route_id) ?? null : null;
   
         return {
           tripId: entry.tripId,
@@ -287,6 +327,64 @@ function formatScheduleLabel(timeString) {
   return `${String(hourNumber).padStart(2, '0')}:${minutes ?? '00'}`;
 }
 
+function formatHHMMSS(date) {
+  return date.toTimeString().split(' ')[0]; // "HH:MM:SS"
+}
+
+
+async function getBusesArrivingAtStop(stopId) {
+  const buffer = await readTripUpdatesBuffer();
+  const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(buffer);
+
+  const now = new Date();
+  //make sure this logig for + 2 hours actually works
+  const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
+
+  const arrivals = [];
+
+  feed.entity.forEach(entity => {
+    if (!entity.tripUpdate) return;
+
+    const tripUpdate = entity.tripUpdate;
+    console.log('in getBusesArrivingAtStop');
+    const tripInfo = tripsById.get(tripUpdate.trip?.tripId) ?? {};
+    const routeInfo = tripInfo.route_id ? routesById.get(tripInfo.route_id) ?? {} : {};
+
+    if (!tripUpdate.stopTimeUpdate) return;
+
+    tripUpdate.stopTimeUpdate.forEach(stopTime => {
+      if (stopTime.stopId !== stopId) return;
+
+      const arrivalTimestamp = stopTime.arrival?.time ?? stopTime.departure?.time;
+      if (!arrivalTimestamp) return;
+
+      const arrivalDate = new Date(arrivalTimestamp * 1000);
+      if (arrivalDate < now || arrivalDate > twoHoursLater) return;
+
+      arrivals.push({
+        tripId: tripUpdate.trip?.tripId ?? null,
+        arrivalTime: formatHHMMSS(arrivalDate),  // matches static format "HH:MM:SS"
+        arrivalLabel: tripUpdate.vehicle?.label ?? null, // optional, same as previous
+        stopSequence: stopTime.stopSequence ?? null,
+        routeId: tripInfo.route_id ?? null,
+        routeShortName: routeInfo.route_short_name ?? null,
+        routeLongName: routeInfo.route_long_name ?? null,
+        headsign: tripInfo.trip_headsign ?? null
+      });
+    });
+  });
+
+  // Sort by earliest arrival
+  arrivals.sort((a, b) => {
+    const [h1, m1, s1] = a.arrivalTime.split(':').map(Number);
+    const [h2, m2, s2] = b.arrivalTime.split(':').map(Number);
+    return h1 * 3600 + m1 * 60 + s1 - (h2 * 3600 + m2 * 60 + s2);
+  });
+
+  return arrivals.slice(0, 20); // top 20 arrivals
+}
+
+
 /** Downloads the realtime vehicle feed and normalizes each entity. */
 async function loadVehiclePositions() {
   const buffer = await readVehicleFeedBuffer();
@@ -324,15 +422,21 @@ async function loadVehiclePositions() {
 
 /** Fetches the raw protobuf feed either from remote URL or disk. */
 async function readVehicleFeedBuffer() {
-  if (VEHICLE_POSITIONS_URL) {
-    const response = await fetch(VEHICLE_POSITIONS_URL);
-    if (!response.ok) {
-      throw new Error(`Failed to download vehicle positions (${response.status})`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+  const response = await fetch(VEHICLE_POSITIONS_URL);
+  if (!response.ok) {
+    throw new Error(`Failed to download vehicle positions (${response.status})`);
   }
-  return fs.promises.readFile(VEHICLE_POSITIONS_PATH);
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
+async function readTripUpdatesBuffer() {
+  const response = await fetch(TRIP_UPDATES_URL);
+  if (!response.ok) {
+    throw new Error(`Failed to download trip updates (${response.status})`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
 
 /** Parses floats but returns null when the input is invalid. */
