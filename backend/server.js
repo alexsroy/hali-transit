@@ -17,6 +17,15 @@ const TRIP_UPDATES_URL = 'https://gtfs.halifax.ca/realtime/TripUpdate/TripUpdate
 
 
 const PORT = Number(process.env.PORT) || 4000;
+const weekdayKeys = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday'
+];
 
 //All static data (so it doesn't get called every time)
 let routes;
@@ -26,6 +35,7 @@ let shapesById;
 let stopSchedulesByStopId;
 let routesById;
 let staticTripsById;
+let calendarByServiceId;
 /** Spins up the Express server and wires API routes. */
 async function bootstrap() {
   const app = express();
@@ -38,7 +48,8 @@ async function bootstrap() {
     shapesById,
     stopSchedulesByStopId,
     routesById,
-    tripsById: staticTripsById
+    staticTripsById,
+    calendarByServiceId
   } = await loadStaticData());
 
   if (!staticTripsById || !routesById) {
@@ -91,7 +102,7 @@ async function bootstrap() {
   
     try {
   
-      if (!tripsById || !routesById) {
+      if (!staticTripsById || !routesById) {
         throw new Error('Static GTFS data not loaded correctly');
       }
   
@@ -133,10 +144,18 @@ async function bootstrap() {
         .sort((a, b) => timeToSeconds(a.arrivalTime) - timeToSeconds(b.arrivalTime))
         .slice(0, 20);
   
-      const arrivals = filtered.map(entry => {
-        const trip = tripsById.get(entry.tripId) ?? null;
-        const route = trip?.route_id ? routesById.get(trip.route_id) ?? null : null;
-  
+      const arrivals = filtered
+      .filter(entry => {
+        const trip = staticTripsById.get(entry.tripId);
+        if (!trip) return false;
+        return isServiceRunningToday(trip.service_id);
+      })
+      .map(entry => {
+        const trip = staticTripsById.get(entry.tripId);
+        const route = trip?.route_id
+          ? routesById.get(trip.route_id) ?? null
+          : null;
+    
         return {
           tripId: entry.tripId,
           arrivalTime: entry.arrivalTime,
@@ -184,12 +203,13 @@ async function loadStaticData() {
       return parseCsv(buffer.toString('utf8'));
     };
 
-    const [routesRaw, stopsRaw, tripsRaw, shapesRaw, stopTimesRaw] = await Promise.all([
+    const [routesRaw, stopsRaw, tripsRaw, shapesRaw, stopTimesRaw, calendarRaw] = await Promise.all([
       readCsv('routes.txt'),
       readCsv('stops.txt'),
       readCsv('trips.txt'),
       readCsv('shapes.txt'),
-      readCsv('stop_times.txt')
+      readCsv('stop_times.txt'),
+      readCsv('calendar.txt')
     ]);
 
     const routes = routesRaw.map((route) => ({
@@ -218,7 +238,7 @@ async function loadStaticData() {
     }));
 
     const routesById = new Map(routes.map((route) => [route.route_id, route]));
-    const tripsById = new Map(trips.map((trip) => [trip.trip_id, trip]));
+    const staticTripsById = new Map(trips.map((trip) => [trip.trip_id, trip]));
 
     const shapesById = new Map();
     shapesRaw.forEach((shape) => {
@@ -276,8 +296,26 @@ async function loadStaticData() {
       list.sort((a, b) => a.arrivalSeconds - b.arrivalSeconds);
     }
 
+    const calendarByServiceId = new Map();
+
+    calendarRaw.forEach(row => {
+      if (!row.service_id) return;
+
+      calendarByServiceId.set(row.service_id, {
+        monday: row.monday === '1',
+        tuesday: row.tuesday === '1',
+        wednesday: row.wednesday === '1',
+        thursday: row.thursday === '1',
+        friday: row.friday === '1',
+        saturday: row.saturday === '1',
+        sunday: row.sunday === '1',
+        startDate: parseYyyyMmDd(row.start_date),
+        endDate: parseYyyyMmDd(row.end_date)
+      });
+    });
+
     console.log('Loaded GTFS static data.');
-    return { routes, stops, trips, shapesById, stopSchedulesByStopId, routesById, tripsById };
+    return { routes, stops, trips, shapesById, stopSchedulesByStopId, routesById, staticTripsById, calendarByServiceId };
   } finally {
     await zip.close();
   }
@@ -327,8 +365,28 @@ function formatScheduleLabel(timeString) {
   return `${String(hourNumber).padStart(2, '0')}:${minutes ?? '00'}`;
 }
 
+function isServiceRunningToday(serviceId, today = new Date()) {
+  const service = calendarByServiceId.get(serviceId);
+  if (!service) return false;
+
+  const dayKey = weekdayKeys[today.getDay()];
+
+  if (!service[dayKey]) return false;
+  if (today < service.startDate) return false;
+  if (today > service.endDate) return false;
+
+  return true;
+}
+
 function formatHHMMSS(date) {
   return date.toTimeString().split(' ')[0]; // "HH:MM:SS"
+}
+
+function parseYyyyMmDd(str) {
+  const y = Number(str.slice(0, 4));
+  const m = Number(str.slice(4, 6)) - 1;
+  const d = Number(str.slice(6, 8));
+  return new Date(y, m, d);
 }
 
 
@@ -347,7 +405,7 @@ async function getBusesArrivingAtStop(stopId) {
 
     const tripUpdate = entity.tripUpdate;
     console.log('in getBusesArrivingAtStop');
-    const tripInfo = tripsById.get(tripUpdate.trip?.tripId) ?? {};
+    const tripInfo = staticTripsById.get(tripUpdate.trip?.tripId) ?? {};
     const routeInfo = tripInfo.route_id ? routesById.get(tripInfo.route_id) ?? {} : {};
 
     if (!tripUpdate.stopTimeUpdate) return;

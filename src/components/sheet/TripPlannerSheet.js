@@ -42,7 +42,7 @@ const TripPlannerSheet = forwardRef(function TripPlannerSheet({
   pinnedRoutes,
   pinnedSlots,
   activeRouteId,
-  scheduledArrivals,
+  realTimeArrivals,
   isStopFocused,
   selectedStop,
   selectedStopId,
@@ -168,7 +168,7 @@ const TripPlannerSheet = forwardRef(function TripPlannerSheet({
           stop={selectedStop}
           stopId={selectedStopId}
           onClear={onClearStop}
-          arrivals={scheduledArrivals}
+          arrivals={realTimeArrivals}
         />
       ) : (
         <RouteList

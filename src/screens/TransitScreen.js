@@ -29,6 +29,7 @@ import useStaleVehicles from '../hooks/useStaleVehicles.js';
 import useVisibleStopsList from '../hooks/useVisibleStopsList.js';
 import useRouteCards from '../hooks/useRouteCards.js';
 import useStopSchedule from '../hooks/useStopSchedule.js';
+import useUpcommingArrivals from '../hooks/useUpcommingArrivals.js';
 import useStatusBannerMessage from '../hooks/useStatusBannerMessage.js';
 import usePinnedRoutes from '../hooks/usePinnedRoutes.js';
 
@@ -158,7 +159,11 @@ export default function TransitScreen() {
     const target = augmentedRouteCards[index];
     return [target, ...augmentedRouteCards.slice(0, index), ...augmentedRouteCards.slice(index + 1)];
   }, [augmentedRouteCards, priorityRouteId]);
-  const { scheduledArrivals } = useStopSchedule(selectedStopId, API_BASE_URL);
+
+  //this was old for the scheduledarrival times
+  //const { scheduledArrivals } = useStopSchedule(selectedStopId, API_BASE_URL);
+  const { realTimeArrivals } = useUpcommingArrivals(selectedStopId, API_BASE_URL);
+
 
   const isStopFocused = Boolean(selectedStopId && selectedStop);
   const activeRouteId = useMemo(
@@ -298,7 +303,7 @@ export default function TransitScreen() {
           pinnedRoutes={pinnedRoutes}
           pinnedSlots={pinnedSlots}
           activeRouteId={activeRouteId}
-          scheduledArrivals={scheduledArrivals}
+          realTimeArrivals={realTimeArrivals}
           isStopFocused={isStopFocused}
           selectedStop={selectedStop}
           selectedStopId={selectedStopId}

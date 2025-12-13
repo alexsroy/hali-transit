@@ -54,5 +54,5 @@ export default function useStopSchedule(stopId, apiBaseUrl) {
     };
   }, [apiBaseUrl, stopId]);
 
-  return { scheduledArrivals: arrivals, scheduleLoading: loading, scheduleError: error };
+  return { realTimeArrivals: arrivals, scheduleLoading: loading, scheduleError: error };
 }
