@@ -378,8 +378,13 @@ function isServiceRunningToday(serviceId, today = new Date()) {
   return true;
 }
 
-function formatHHMMSS(date) {
-  return date.toTimeString().split(' ')[0]; // "HH:MM:SS"
+function formatHHMM(date) {
+  if (!(date instanceof Date) || isNaN(date)) return null;
+  return date.toLocaleTimeString('en-CA', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
 }
 
 function parseYyyyMmDd(str) {
@@ -395,7 +400,7 @@ async function getBusesArrivingAtStop(stopId) {
   const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(buffer);
 
   const now = new Date();
-  //make sure this logig for + 2 hours actually works
+  //make sure this logic for + 2 hours actually works
   const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
 
   const arrivals = [];
@@ -404,7 +409,6 @@ async function getBusesArrivingAtStop(stopId) {
     if (!entity.tripUpdate) return;
 
     const tripUpdate = entity.tripUpdate;
-    console.log('in getBusesArrivingAtStop');
     const tripInfo = staticTripsById.get(tripUpdate.trip?.tripId) ?? {};
     const routeInfo = tripInfo.route_id ? routesById.get(tripInfo.route_id) ?? {} : {};
 
@@ -421,7 +425,7 @@ async function getBusesArrivingAtStop(stopId) {
 
       arrivals.push({
         tripId: tripUpdate.trip?.tripId ?? null,
-        arrivalTime: formatHHMMSS(arrivalDate),  // matches static format "HH:MM:SS"
+        arrivalTime: formatHHMM(arrivalDate),  // matches static format "HH:MM:SS"
         arrivalLabel: tripUpdate.vehicle?.label ?? null, // optional, same as previous
         stopSequence: stopTime.stopSequence ?? null,
         routeId: tripInfo.route_id ?? null,
@@ -432,12 +436,10 @@ async function getBusesArrivingAtStop(stopId) {
     });
   });
 
-  // Sort by earliest arrival
-  arrivals.sort((a, b) => {
-    const [h1, m1, s1] = a.arrivalTime.split(':').map(Number);
-    const [h2, m2, s2] = b.arrivalTime.split(':').map(Number);
-    return h1 * 3600 + m1 * 60 + s1 - (h2 * 3600 + m2 * 60 + s2);
-  });
+  arrivals.sort((a, b) =>
+    a.arrivalTime.localeCompare(b.arrivalTime)
+  );
+
 
   return arrivals.slice(0, 20); // top 20 arrivals
 }
