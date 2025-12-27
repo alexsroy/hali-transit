@@ -23,7 +23,7 @@ export default function useUpcommingArrivals(stopId, apiBaseUrl) {
     const load = async () => {
       try {
         const response = await fetch(
-          `${apiBaseUrl}/api/realtime/stop-arrivals?stopId=${encodeURIComponent(stopId)}`, //removed the realtime request temporarily: /api/realtime/stop-arrivals
+          `${apiBaseUrl}/api/stop-arrivals?stopId=${encodeURIComponent(stopId)}`, //removed the realtime request temporarily: /api/realtime/stop-arrivals
           { signal: controller.signal }
         );
         if (!response.ok) {

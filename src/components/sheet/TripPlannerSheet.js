@@ -456,7 +456,7 @@ function ScheduledArrivalCard({ arrival }) {
       </View>
       <View style={styles.arrivalEtaBlock}>
         <Text style={styles.arrivalEta}>{arrival.arrivalTime ?? '—'}</Text>
-        <Text style={styles.arrivalEtaCaption}>realtime</Text>
+        <Text style={styles.arrivalEtaCaption}>{arrival.dataSource}</Text>
       </View>
     </View>
   );

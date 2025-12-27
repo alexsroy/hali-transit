@@ -99,20 +99,20 @@ async function bootstrap() {
       res.status(400).json({ error: 'stopId query parameter is required.' });
       return;
     }
-  
+
     try {
-  
+
       if (!staticTripsById || !routesById) {
         throw new Error('Static GTFS data not loaded correctly');
       }
-  
+
       const arrivals = await getBusesArrivingAtStop(stopId);
       res.json({ arrivals });
     } catch (error) {
       next(error);
     }
   });
-  
+
 
   app.get('/api/static/stop-arrivals', async (req, res, next) => {
     const stopId = req.query.stopId;
@@ -120,60 +120,95 @@ async function bootstrap() {
       res.status(400).json({ error: 'stopId query parameter is required.' });
       return;
     }
-  
+
     try {
-  
+
       const schedule = stopSchedulesByStopId.get(String(stopId)) ?? [];
-  
+
       // ---- Convert "HH:MM:SS" -> seconds since midnight ----
       function timeToSeconds(t) {
         const [h, m, s] = t.split(':').map(Number);
         return h * 3600 + m * 60 + s;
       }
-  
+
       // ---- Current time in seconds since midnight ----
       const now = new Date();
       const secondsSinceMidnight =
         now.getHours() * 3600 +
         now.getMinutes() * 60 +
         now.getSeconds();
-  
+
       // ---- Filter + sort upcoming arrivals ----
       const filtered = schedule
         .filter(entry => timeToSeconds(entry.arrivalTime) >= secondsSinceMidnight)
         .sort((a, b) => timeToSeconds(a.arrivalTime) - timeToSeconds(b.arrivalTime))
         .slice(0, 20);
-  
+
       const arrivals = filtered
-      .filter(entry => {
-        const trip = staticTripsById.get(entry.tripId);
-        if (!trip) return false;
-        return isServiceRunningToday(trip.service_id);
-      })
-      .map(entry => {
-        const trip = staticTripsById.get(entry.tripId);
-        const route = trip?.route_id
-          ? routesById.get(trip.route_id) ?? null
-          : null;
-    
-        return {
-          tripId: entry.tripId,
-          arrivalTime: entry.arrivalTime,
-          arrivalLabel: entry.arrivalLabel,
-          stopSequence: entry.stopSequence,
-          routeId: trip?.route_id ?? null,
-          routeShortName: route?.route_short_name ?? null,
-          routeLongName: route?.route_long_name ?? null,
-          headsign: trip?.trip_headsign ?? null
-        };
-      });
-  
+        .filter(entry => {
+          const trip = staticTripsById.get(entry.tripId);
+          if (!trip) return false;
+          return isServiceRunningToday(trip.service_id);
+        })
+        .map(entry => {
+          const trip = staticTripsById.get(entry.tripId);
+          const route = trip?.route_id
+            ? routesById.get(trip.route_id) ?? null
+            : null;
+
+          return {
+            tripId: entry.tripId,
+            arrivalTime: entry.arrivalTime,
+            arrivalLabel: entry.arrivalLabel,
+            stopSequence: entry.stopSequence,
+            routeId: trip?.route_id ?? null,
+            routeShortName: route?.route_short_name ?? null,
+            routeLongName: route?.route_long_name ?? null,
+            headsign: trip?.trip_headsign ?? null,
+            dataSource: "Scheduled"
+          };
+        });
+
       res.json({ arrivals });
     } catch (error) {
       next(error);
     }
   });
-  
+
+
+  app.get('/api/stop-arrivals', async (req, res, next) => {
+    const stopId = req.query.stopId;
+    if (!stopId) {
+      return res.status(400).json({ error: 'stopId query parameter is required.' });
+    }
+
+    try {
+      const requestTime = parseRequestTime(req);
+      const now = new Date();
+
+      const USE_REALTIME_WINDOW_MS = 2 * 60 * 60 * 1000;
+      const canUseRealtime =
+        Math.abs(requestTime - now) <= USE_REALTIME_WINDOW_MS;
+
+      let realtimeArrivals = [];
+      let scheduledArrivals = [];
+
+      if (canUseRealtime) {
+        realtimeArrivals = await getBusesArrivingAtStop(stopId);
+      }
+
+      scheduledArrivals = getScheduledArrivalsAtStop(stopId, requestTime);
+
+      const arrivals = mergeArrivals(realtimeArrivals, scheduledArrivals);
+
+      res.json({ arrivals });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+
+
 
   app.use((error, req, res, _next) => {
     console.error('API error:', error);
@@ -321,6 +356,77 @@ async function loadStaticData() {
   }
 }
 
+function parseRequestTime(req) {
+  if (!req.query.time) return new Date();
+  const t = new Date(req.query.time);
+  return isNaN(t.getTime()) ? new Date() : t;
+}
+
+
+function getScheduledArrivalsAtStop(stopId, time) {
+  const schedule = stopSchedulesByStopId.get(String(stopId)) ?? [];
+
+  const secondsSinceMidnight =
+    time.getHours() * 3600 +
+    time.getMinutes() * 60 +
+    time.getSeconds();
+
+  function timeToSeconds(t) {
+    const [h, m, s] = t.split(':').map(Number);
+    return h * 3600 + m * 60 + s;
+  }
+
+  return schedule
+    .filter(entry => timeToSeconds(entry.arrivalTime) >= secondsSinceMidnight)
+    .filter(entry => {
+      const trip = staticTripsById.get(entry.tripId);
+      return trip && isServiceRunningToday(trip.service_id);
+    })
+    .map(entry => {
+      const trip = staticTripsById.get(entry.tripId);
+      const route = trip?.route_id
+        ? routesById.get(trip.route_id)
+        : null;
+
+      return {
+        tripId: entry.tripId,
+        arrivalTime: entry.arrivalTime,
+        arrivalLabel: entry.arrivalLabel,
+        stopSequence: entry.stopSequence,
+        routeId: trip?.route_id ?? null,
+        routeShortName: route?.route_short_name ?? null,
+        routeLongName: route?.route_long_name ?? null,
+        headsign: trip?.trip_headsign ?? null,
+        dataSource: "Scheduled"
+      };
+    });
+}
+
+function mergeArrivals(realtime, scheduled) {
+  const byTripId = new Map();
+
+  for (const r of realtime) {
+    byTripId.set(r.tripId, { ...r});
+  }
+
+  for (const s of scheduled) {
+    if (!byTripId.has(s.tripId)) {
+      byTripId.set(s.tripId, s);
+    }
+  }
+
+  const arrivals = Array.from(byTripId.values());
+
+  arrivals.sort((a, b) =>
+    a.arrivalTime.localeCompare(b.arrivalTime)
+  );
+
+  return arrivals.slice(0, 20);
+}
+
+
+
+
 /** Locates a file inside the GTFS zip regardless of directory casing. */
 function findEntry(entries, targetName) {
   const lower = targetName.toLowerCase();
@@ -400,48 +506,64 @@ async function getBusesArrivingAtStop(stopId) {
   const feed = GtfsRealtimeBindings.transit_realtime.FeedMessage.decode(buffer);
 
   const now = new Date();
-  //make sure this logic for + 2 hours actually works
   const twoHoursLater = new Date(now.getTime() + 2 * 60 * 60 * 1000);
 
-  const arrivals = [];
+  // tripId -> arrival object
+  const arrivalsByTripId = new Map();
 
   feed.entity.forEach(entity => {
     if (!entity.tripUpdate) return;
 
     const tripUpdate = entity.tripUpdate;
-    const tripInfo = staticTripsById.get(tripUpdate.trip?.tripId) ?? {};
-    const routeInfo = tripInfo.route_id ? routesById.get(tripInfo.route_id) ?? {} : {};
+    const tripId = tripUpdate.trip?.tripId;
+    if (!tripId) return;
 
-    if (!tripUpdate.stopTimeUpdate) return;
+    const tripInfo = staticTripsById.get(tripId) ?? {};
+    const routeInfo = tripInfo.route_id
+      ? routesById.get(tripInfo.route_id) ?? {}
+      : {};
 
-    tripUpdate.stopTimeUpdate.forEach(stopTime => {
+    tripUpdate.stopTimeUpdate?.forEach(stopTime => {
       if (stopTime.stopId !== stopId) return;
 
-      const arrivalTimestamp = stopTime.arrival?.time ?? stopTime.departure?.time;
+      const arrivalTimestamp =
+        stopTime.arrival?.time ?? stopTime.departure?.time;
       if (!arrivalTimestamp) return;
 
       const arrivalDate = new Date(arrivalTimestamp * 1000);
       if (arrivalDate < now || arrivalDate > twoHoursLater) return;
 
-      arrivals.push({
-        tripId: tripUpdate.trip?.tripId ?? null,
-        arrivalTime: formatHHMM(arrivalDate),  // matches static format "HH:MM:SS"
-        arrivalLabel: tripUpdate.vehicle?.label ?? null, // optional, same as previous
+      const arrival = {
+        tripId,
+        arrivalTime: formatHHMM(arrivalDate),
+        arrivalLabel: tripUpdate.vehicle?.label ?? null,
         stopSequence: stopTime.stopSequence ?? null,
         routeId: tripInfo.route_id ?? null,
         routeShortName: routeInfo.route_short_name ?? null,
         routeLongName: routeInfo.route_long_name ?? null,
-        headsign: tripInfo.trip_headsign ?? null
-      });
+        headsign: tripInfo.trip_headsign ?? null,
+        dataSource: "Realtime"
+      };
+
+      const existing = arrivalsByTripId.get(tripId);
+
+      // Keep the earliest arrival per trip
+      if (
+        !existing ||
+        arrival.arrivalTime.localeCompare(existing.arrivalTime) < 0
+      ) {
+        arrivalsByTripId.set(tripId, arrival);
+      }
     });
   });
+
+  const arrivals = Array.from(arrivalsByTripId.values());
 
   arrivals.sort((a, b) =>
     a.arrivalTime.localeCompare(b.arrivalTime)
   );
 
-
-  return arrivals.slice(0, 20); // top 20 arrivals
+  return arrivals.slice(0, 20);
 }
 
 
