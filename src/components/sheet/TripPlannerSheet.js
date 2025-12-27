@@ -455,7 +455,19 @@ function ScheduledArrivalCard({ arrival }) {
         </Text>
       </View>
       <View style={styles.arrivalEtaBlock}>
-        <Text style={styles.arrivalEta}>{arrival.arrivalTime ?? '—'}</Text>
+        <Text style={styles.arrivalEta}>
+          {arrival.arrivalTime ?? '—'}
+          {arrival.isDelayed && arrival.arrivalDelay > 0 && (
+            <Text style={styles.delayText}>
+              {' '}({arrival.arrivalDelay} min late)
+            </Text>
+          )}
+          {arrival.isDelayed && arrival.arrivalDelay < 0 && (
+            <Text style={styles.earlyText}>
+              {' '}({arrival.arrivalDelay} min early)
+            </Text>
+          )}
+        </Text>
         <Text style={styles.arrivalEtaCaption}>{arrival.dataSource}</Text>
       </View>
     </View>

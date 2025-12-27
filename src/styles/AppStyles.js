@@ -387,6 +387,14 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     paddingHorizontal: 20
+  },
+  delayText: {
+    color: '#b00020',
+    fontSize: 12
+  },
+  earlyText: {
+    color: '#2e7d32',
+    fontSize: 12
   }
 });
 

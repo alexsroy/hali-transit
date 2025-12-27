@@ -533,6 +533,17 @@ async function getBusesArrivingAtStop(stopId) {
       const arrivalDate = new Date(arrivalTimestamp * 1000);
       if (arrivalDate < now || arrivalDate > twoHoursLater) return;
 
+      const arrivalDelaySeconds =
+        stopTime.arrival?.delay ??
+        stopTime.departure?.delay ??
+        null;
+      
+      const arrivalDelayMinutes =
+        typeof arrivalDelaySeconds === "number"
+          ? Math.round(arrivalDelaySeconds / 60)
+          : null;
+      
+
       const arrival = {
         tripId,
         arrivalTime: formatHHMM(arrivalDate),
@@ -542,8 +553,13 @@ async function getBusesArrivingAtStop(stopId) {
         routeShortName: routeInfo.route_short_name ?? null,
         routeLongName: routeInfo.route_long_name ?? null,
         headsign: tripInfo.trip_headsign ?? null,
+        arrivalDelay: arrivalDelayMinutes,
+        isDelayed: typeof arrivalDelayMinutes === "number" && arrivalDelayMinutes !== 0,
         dataSource: "Realtime"
       };
+
+      console.log('arrival delay seconds is: ', arrivalDelaySeconds);
+      console.log('arrival delay minutes is: ', arrivalDelayMinutes);
 
       const existing = arrivalsByTripId.get(tripId);
 
